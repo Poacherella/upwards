@@ -5,7 +5,6 @@ use bevy::{
     sprite::collide_aabb::{collide, Collision},
 };
 
-/// An implementation of the classic game "Breakout"
 const TIME_STEP: f32 = 1.0 / 60.0;
 fn main() {
     App::build()
@@ -16,20 +15,26 @@ fn main() {
         .add_system_set(
             SystemSet::new()
                 .with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
-                .with_system(paddle_movement_system.system())
                 .with_system(ball_collision_system.system())
-                .with_system(ball_movement_system.system()),
+                .with_system(mine_selector_system.system())
+                .with_system(gravity_system.system()),
         )
         .add_system(scoreboard_system.system())
         .add_system(bevy::input::system::exit_on_esc_system.system())
         .run();
 }
 
-struct Paddle {
-    speed: f32,
+struct Mine {
+    active: bool,
 }
 
-struct Ball {
+impl Default for Mine {
+    fn default() -> Self {
+        Self { active: false }
+    }
+}
+struct MainCamera;
+struct Player {
     velocity: Vec3,
 }
 
@@ -39,8 +44,7 @@ struct Scoreboard {
 
 enum Collider {
     Solid,
-    Scorable,
-    Paddle,
+    Mine,
 }
 
 fn setup(
@@ -51,29 +55,33 @@ fn setup(
     // Add the game's entities to our world
 
     // cameras
-    commands.spawn_bundle(OrthographicCameraBundle::new_2d());
-    commands.spawn_bundle(UiCameraBundle::default());
-    // paddle
     commands
-        .spawn_bundle(SpriteBundle {
-            material: materials.add(Color::rgb(0.5, 0.5, 1.0).into()),
-            transform: Transform::from_xyz(0.0, -215.0, 0.0),
-            sprite: Sprite::new(Vec2::new(120.0, 30.0)),
-            ..Default::default()
-        })
-        .insert(Paddle { speed: 500.0 })
-        .insert(Collider::Paddle);
+        .spawn_bundle(OrthographicCameraBundle::new_2d())
+        .insert(MainCamera);
+    commands.spawn_bundle(UiCameraBundle::default());
+
     // ball
     commands
         .spawn_bundle(SpriteBundle {
             material: materials.add(Color::rgb(1.0, 0.5, 0.5).into()),
-            transform: Transform::from_xyz(0.0, -50.0, 1.0),
+            transform: Transform::from_xyz(0.0, -160.0, 1.0),
             sprite: Sprite::new(Vec2::new(30.0, 30.0)),
             ..Default::default()
         })
-        .insert(Ball {
+        .insert(Player {
             velocity: 400.0 * Vec3::new(0.5, -0.5, 0.0).normalize(),
         });
+
+    commands
+        .spawn_bundle(SpriteBundle {
+            material: materials.add(Color::rgb(0.5, 1.0, 0.5).into()),
+            sprite: Sprite::new(Vec2::new(30.0, 30.0)),
+            transform: Transform::from_xyz(0.0, -50.0, 1.0),
+            ..Default::default()
+        })
+        .insert(Mine::default())
+        ;
+
     // scoreboard
     commands.spawn_bundle(TextBundle {
         text: Text {
@@ -81,7 +89,7 @@ fn setup(
                 TextSection {
                     value: "Score: ".to_string(),
                     style: TextStyle {
-                        font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                        font: asset_server.load("vcr.ttf"),
                         font_size: 40.0,
                         color: Color::rgb(0.5, 0.5, 1.0),
                     },
@@ -89,7 +97,7 @@ fn setup(
                 TextSection {
                     value: "".to_string(),
                     style: TextStyle {
-                        font: asset_server.load("fonts/FiraMono-Medium.ttf"),
+                        font: asset_server.load("vcr.ttf"),
                         font_size: 40.0,
                         color: Color::rgb(1.0, 0.5, 0.5),
                     },
@@ -108,104 +116,63 @@ fn setup(
         },
         ..Default::default()
     });
-
-    // Add walls
-    let wall_material = materials.add(Color::rgb(0.8, 0.8, 0.8).into());
-    let wall_thickness = 10.0;
-    let bounds = Vec2::new(900.0, 600.0);
-
-    // left
-    commands
-        .spawn_bundle(SpriteBundle {
-            material: wall_material.clone(),
-            transform: Transform::from_xyz(-bounds.x / 2.0, 0.0, 0.0),
-            sprite: Sprite::new(Vec2::new(wall_thickness, bounds.y + wall_thickness)),
-            ..Default::default()
-        })
-        .insert(Collider::Solid);
-    // right
-    commands
-        .spawn_bundle(SpriteBundle {
-            material: wall_material.clone(),
-            transform: Transform::from_xyz(bounds.x / 2.0, 0.0, 0.0),
-            sprite: Sprite::new(Vec2::new(wall_thickness, bounds.y + wall_thickness)),
-            ..Default::default()
-        })
-        .insert(Collider::Solid);
-    // bottom
-    commands
-        .spawn_bundle(SpriteBundle {
-            material: wall_material.clone(),
-            transform: Transform::from_xyz(0.0, -bounds.y / 2.0, 0.0),
-            sprite: Sprite::new(Vec2::new(bounds.x + wall_thickness, wall_thickness)),
-            ..Default::default()
-        })
-        .insert(Collider::Solid);
-    // top
-    commands
-        .spawn_bundle(SpriteBundle {
-            material: wall_material,
-            transform: Transform::from_xyz(0.0, bounds.y / 2.0, 0.0),
-            sprite: Sprite::new(Vec2::new(bounds.x + wall_thickness, wall_thickness)),
-            ..Default::default()
-        })
-        .insert(Collider::Solid);
-
-    // Add bricks
-    let brick_rows = 4;
-    let brick_columns = 5;
-    let brick_spacing = 20.0;
-    let brick_size = Vec2::new(150.0, 30.0);
-    let bricks_width = brick_columns as f32 * (brick_size.x + brick_spacing) - brick_spacing;
-    // center the bricks and move them up a bit
-    let bricks_offset = Vec3::new(-(bricks_width - brick_size.x) / 2.0, 100.0, 0.0);
-    let brick_material = materials.add(Color::rgb(0.5, 0.5, 1.0).into());
-    for row in 0..brick_rows {
-        let y_position = row as f32 * (brick_size.y + brick_spacing);
-        for column in 0..brick_columns {
-            let brick_position = Vec3::new(
-                column as f32 * (brick_size.x + brick_spacing),
-                y_position,
-                0.0,
-            ) + bricks_offset;
-            // brick
-            commands
-                .spawn_bundle(SpriteBundle {
-                    material: brick_material.clone(),
-                    sprite: Sprite::new(brick_size),
-                    transform: Transform::from_translation(brick_position),
-                    ..Default::default()
-                })
-                .insert(Collider::Scorable);
-        }
-    }
 }
 
-fn paddle_movement_system(
-    keyboard_input: Res<Input<KeyCode>>,
-    mut query: Query<(&Paddle, &mut Transform)>,
+fn mine_selector_system(
+    // need to get window dimensions
+    wnds: Res<Windows>,
+    // query to get camera transform
+    q_camera: Query<&Transform, With<MainCamera>>,
+    mut q_mine: Query<(&Transform, &mut Mine)>,
 ) {
-    if let Ok((paddle, mut transform)) = query.single_mut() {
-        let mut direction = 0.0;
-        if keyboard_input.pressed(KeyCode::Left) {
-            direction -= 1.0;
-        }
+    // get the primary window
+    let wnd = wnds.get_primary().unwrap();
 
-        if keyboard_input.pressed(KeyCode::Right) {
-            direction += 1.0;
-        }
+    // check if the cursor is in the primary window
+    if let Some(pos) = wnd.cursor_position() {
+        // get the size of the window
+        let size = Vec2::new(wnd.width() as f32, wnd.height() as f32);
 
-        let translation = &mut transform.translation;
-        // move the paddle horizontally
-        translation.x += direction * paddle.speed * TIME_STEP;
-        // bound the paddle within the walls
-        translation.x = translation.x.min(380.0).max(-380.0);
+        // the default orthographic projection is in pixels from the center;
+        // just undo the translation
+        let p = pos - size / 2.0;
+
+        // assuming there is exactly one main camera entity, so this is OK
+        let camera_transform = q_camera.single().unwrap();
+
+        // apply the camera transform
+        let pos_wld = camera_transform.compute_matrix() * p.extend(0.0).extend(1.0);
+        // eprintln!("World coords: {}/{}", pos_wld.x, pos_wld.y);
+
+        for (t_mine, mut mine) in q_mine.single_mut() {
+            let a = Vec2::new(t_mine.translation.x, t_mine.translation.y);
+            let b = Vec2::new(pos_wld.x, pos_wld.y);
+            let d = dist(a, b);
+            // eprintln!("d {}", d);
+
+            if d < 30. {
+                mine.active = true
+            } else {
+                mine.active = false
+            }
+        }
     }
 }
 
-fn ball_movement_system(mut ball_query: Query<(&Ball, &mut Transform)>) {
+// 2d dist
+fn dist(a: Vec2, b: Vec2) -> f32 {
+    ((a.x - b.x).powf(2.) + (a.y - b.y).powf(2.)).sqrt()
+}
+
+fn ball_movement_system(mut ball_query: Query<(&Player, &mut Transform)>) {
     if let Ok((ball, mut transform)) = ball_query.single_mut() {
-        transform.translation += ball.velocity * TIME_STEP;
+        // transform.translation += ball.velocity * TIME_STEP;
+    }
+}
+
+fn gravity_system(mut player_query: Query<(&Player, &mut Transform)>) {
+    if let Ok((_ball, mut transform)) = player_query.single_mut() {
+        transform.translation -= Vec3::new(0., 30.23, 0.) * TIME_STEP;
     }
 }
 
@@ -217,7 +184,7 @@ fn scoreboard_system(scoreboard: Res<Scoreboard>, mut query: Query<&mut Text>) {
 fn ball_collision_system(
     mut commands: Commands,
     mut scoreboard: ResMut<Scoreboard>,
-    mut ball_query: Query<(&mut Ball, &Transform, &Sprite)>,
+    mut ball_query: Query<(&mut Player, &Transform, &Sprite)>,
     collider_query: Query<(Entity, &Collider, &Transform, &Sprite)>,
 ) {
     if let Ok((mut ball, ball_transform, sprite)) = ball_query.single_mut() {
@@ -232,42 +199,6 @@ fn ball_collision_system(
                 transform.translation,
                 sprite.size,
             );
-            if let Some(collision) = collision {
-                // scorable colliders should be despawned and increment the scoreboard on collision
-                if let Collider::Scorable = *collider {
-                    scoreboard.score += 1;
-                    commands.entity(collider_entity).despawn();
-                }
-
-                // reflect the ball when it collides
-                let mut reflect_x = false;
-                let mut reflect_y = false;
-
-                // only reflect if the ball's velocity is going in the opposite direction of the
-                // collision
-                match collision {
-                    Collision::Left => reflect_x = velocity.x > 0.0,
-                    Collision::Right => reflect_x = velocity.x < 0.0,
-                    Collision::Top => reflect_y = velocity.y < 0.0,
-                    Collision::Bottom => reflect_y = velocity.y > 0.0,
-                }
-
-                // reflect velocity on the x-axis if we hit something on the x-axis
-                if reflect_x {
-                    velocity.x = -velocity.x;
-                }
-
-                // reflect velocity on the y-axis if we hit something on the y-axis
-                if reflect_y {
-                    velocity.y = -velocity.y;
-                }
-
-                // break if this collide is on a solid, otherwise continue check whether a solid is
-                // also in collision
-                if let Collider::Solid = *collider {
-                    break;
-                }
-            }
         }
     }
 }
