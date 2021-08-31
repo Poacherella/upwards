@@ -4,11 +4,14 @@ use bevy::{
     render::pass::ClearColor,
     sprite::collide_aabb::{collide, Collision},
 };
+use bevy_prototype_debug_lines::*;
+
 
 const TIME_STEP: f32 = 1.0 / 60.0;
 fn main() {
     App::build()
         .add_plugins(DefaultPlugins)
+        .add_plugin(DebugLinesPlugin)
         .insert_resource(Scoreboard { score: 0 })
         .insert_resource(ClearColor(Color::rgb(0.9, 0.9, 0.9)))
         .add_startup_system(setup.system())
@@ -17,7 +20,11 @@ fn main() {
                 .with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
                 .with_system(ball_collision_system.system())
                 .with_system(mine_selector_system.system())
-                .with_system(gravity_system.system()),
+                .with_system(gravity_system.system())
+                .with_system(mine_highlighter_system.system())
+                .with_system(draw_line_system.system())
+                .with_system(mine_hook_system.system())
+                .with_system(player_movement_system.system()),
         )
         .add_system(scoreboard_system.system())
         .add_system(bevy::input::system::exit_on_esc_system.system())
@@ -25,12 +32,16 @@ fn main() {
 }
 
 struct Mine {
-    active: bool,
+    selected: bool,
+    hooked: bool,
 }
 
 impl Default for Mine {
     fn default() -> Self {
-        Self { active: false }
+        Self {
+            selected: false,
+            hooked: false,
+        }
     }
 }
 struct MainCamera;
@@ -60,27 +71,26 @@ fn setup(
         .insert(MainCamera);
     commands.spawn_bundle(UiCameraBundle::default());
 
-    // ball
+    // player
     commands
         .spawn_bundle(SpriteBundle {
-            material: materials.add(Color::rgb(1.0, 0.5, 0.5).into()),
+            material: materials.add(asset_server.load("bomb.png").into()),
             transform: Transform::from_xyz(0.0, -160.0, 1.0),
             sprite: Sprite::new(Vec2::new(30.0, 30.0)),
             ..Default::default()
         })
         .insert(Player {
-            velocity: 400.0 * Vec3::new(0.5, -0.5, 0.0).normalize(),
+            velocity: Vec3::new(0.0, -0.5, 0.0).normalize(),
         });
 
     commands
         .spawn_bundle(SpriteBundle {
-            material: materials.add(Color::rgb(0.5, 1.0, 0.5).into()),
+            material: materials.add(asset_server.load("bomb.png").into()),
             sprite: Sprite::new(Vec2::new(30.0, 30.0)),
             transform: Transform::from_xyz(0.0, -50.0, 1.0),
             ..Default::default()
         })
-        .insert(Mine::default())
-        ;
+        .insert(Mine::default());
 
     // scoreboard
     commands.spawn_bundle(TextBundle {
@@ -142,19 +152,64 @@ fn mine_selector_system(
 
         // apply the camera transform
         let pos_wld = camera_transform.compute_matrix() * p.extend(0.0).extend(1.0);
-        // eprintln!("World coords: {}/{}", pos_wld.x, pos_wld.y);
 
         for (t_mine, mut mine) in q_mine.single_mut() {
             let a = Vec2::new(t_mine.translation.x, t_mine.translation.y);
             let b = Vec2::new(pos_wld.x, pos_wld.y);
             let d = dist(a, b);
-            // eprintln!("d {}", d);
 
             if d < 30. {
-                mine.active = true
+                mine.selected = true
             } else {
-                mine.active = false
+                mine.selected = false
             }
+        }
+    }
+}
+
+fn mine_highlighter_system(
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut q_mine: Query<(&Sprite, &Handle<ColorMaterial>, &Mine)>,
+) {
+    for (_sprite, handle, m) in &mut q_mine.iter_mut() {
+        // let material = materials.get(&handle).unwrap();
+        let material = materials.get_mut(handle);
+        if let Some(mat) = material {
+            if m.selected {
+                mat.color.set_g(10.);
+            } else {
+                mat.color.set_g(1.);
+            }
+
+            if m.hooked {
+                mat.color.set_r(10.);
+            } else {
+                mat.color.set_r(1.);
+            }
+        }
+    }
+}
+
+fn mine_hook_system(btns: Res<Input<MouseButton>>, mut q_mine: Query<&mut Mine>) {
+    // Mouse buttons
+    // if btns.
+    if btns.just_pressed(MouseButton::Left) 
+    {
+        // a left click just happened
+        for mut m in &mut q_mine.iter_mut() {
+            if m.selected {
+                m.hooked = true;
+            } else {
+                m.hooked = false;
+            }
+        }
+    }
+    if btns.just_released(MouseButton::Left) 
+    
+    {
+        // deselect
+        for mut m in &mut q_mine.iter_mut() {
+         m.hooked = false;
         }
     }
 }
@@ -164,15 +219,36 @@ fn dist(a: Vec2, b: Vec2) -> f32 {
     ((a.x - b.x).powf(2.) + (a.y - b.y).powf(2.)).sqrt()
 }
 
-fn ball_movement_system(mut ball_query: Query<(&Player, &mut Transform)>) {
-    if let Ok((ball, mut transform)) = ball_query.single_mut() {
-        // transform.translation += ball.velocity * TIME_STEP;
+fn gravity_system(mut player_query: Query<&mut Player>) {
+    if let Ok(mut player) = player_query.single_mut() {
+        player.velocity.y *= 1.011;
     }
 }
 
-fn gravity_system(mut player_query: Query<(&Player, &mut Transform)>) {
-    if let Ok((_ball, mut transform)) = player_query.single_mut() {
-        transform.translation -= Vec3::new(0., 30.23, 0.) * TIME_STEP;
+fn target_mine_system(mut player_query: Query<(&mut Player, &Mine)>) {
+    if let Ok((mut player, mine)) = player_query.single_mut() {
+        // player.velocity.y *= mine.;
+    }
+}
+
+fn draw_line_system(
+    player_query: Query<(&Player, &Transform)>,
+    mine_query: Query<(&Mine, &Transform)>,
+    mut lines: ResMut<DebugLines>
+) {
+    if let Ok((mut player, p_t)) = player_query.single() {
+        // player.velocity.y *= mine.;
+        for (mine, m_t) in mine_query.iter() {
+            if mine.hooked {
+                lines.line(p_t.translation, m_t.translation, 0.);
+            }
+        }
+    }
+}
+
+fn player_movement_system(mut player_query: Query<(&Player, &mut Transform)>) {
+    if let Ok((player, mut transform)) = player_query.single_mut() {
+        transform.translation += player.velocity;
     }
 }
 
