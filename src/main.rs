@@ -92,6 +92,16 @@ fn setup(
         })
         .insert(Mine::default());
 
+
+        commands
+        .spawn_bundle(SpriteBundle {
+            material: materials.add(asset_server.load("bomb.png").into()),
+            sprite: Sprite::new(Vec2::new(30.0, 30.0)),
+            transform: Transform::from_xyz(-40.0, 200.0, 1.0),
+            ..Default::default()
+        })
+        .insert(Mine::default());
+
     // scoreboard
     commands.spawn_bundle(TextBundle {
         text: Text {
@@ -153,7 +163,7 @@ fn mine_selector_system(
         // apply the camera transform
         let pos_wld = camera_transform.compute_matrix() * p.extend(0.0).extend(1.0);
 
-        for (t_mine, mut mine) in q_mine.single_mut() {
+        for (t_mine, mut mine) in q_mine.iter_mut() {
             let a = Vec2::new(t_mine.translation.x, t_mine.translation.y);
             let b = Vec2::new(pos_wld.x, pos_wld.y);
             let d = dist(a, b);
