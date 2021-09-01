@@ -6,7 +6,6 @@ use bevy::{
 };
 use bevy_prototype_debug_lines::*;
 
-
 const TIME_STEP: f32 = 1.0 / 60.0;
 fn main() {
     App::build()
@@ -23,6 +22,7 @@ fn main() {
                 .with_system(gravity_system.system())
                 .with_system(mine_highlighter_system.system())
                 .with_system(draw_line_system.system())
+                .with_system(move_towards_mine_system.system())
                 .with_system(mine_hook_system.system())
                 .with_system(player_movement_system.system()),
         )
@@ -87,7 +87,7 @@ fn setup(
         .spawn_bundle(SpriteBundle {
             material: materials.add(asset_server.load("bomb.png").into()),
             sprite: Sprite::new(Vec2::new(30.0, 30.0)),
-            transform: Transform::from_xyz(0.0, -50.0, 1.0),
+            transform: Transform::from_xyz(10.0, -70.0, 1.0),
             ..Default::default()
         })
         .insert(Mine::default());
@@ -193,8 +193,7 @@ fn mine_highlighter_system(
 fn mine_hook_system(btns: Res<Input<MouseButton>>, mut q_mine: Query<&mut Mine>) {
     // Mouse buttons
     // if btns.
-    if btns.just_pressed(MouseButton::Left) 
-    {
+    if btns.just_pressed(MouseButton::Left) {
         // a left click just happened
         for mut m in &mut q_mine.iter_mut() {
             if m.selected {
@@ -204,12 +203,10 @@ fn mine_hook_system(btns: Res<Input<MouseButton>>, mut q_mine: Query<&mut Mine>)
             }
         }
     }
-    if btns.just_released(MouseButton::Left) 
-    
-    {
+    if btns.just_released(MouseButton::Left) {
         // deselect
         for mut m in &mut q_mine.iter_mut() {
-         m.hooked = false;
+            m.hooked = false;
         }
     }
 }
@@ -221,22 +218,32 @@ fn dist(a: Vec2, b: Vec2) -> f32 {
 
 fn gravity_system(mut player_query: Query<&mut Player>) {
     if let Ok(mut player) = player_query.single_mut() {
-        player.velocity.y *= 1.011;
+        // player.velocity.y *= 1.0051;
+        player.velocity -= Vec3::Y * 0.01;
     }
 }
 
-fn target_mine_system(mut player_query: Query<(&mut Player, &Mine)>) {
-    if let Ok((mut player, mine)) = player_query.single_mut() {
+fn move_towards_mine_system(
+    mut player_query: Query<(&mut Player, &Transform)>,
+    mine_query: Query<(&Mine, &Transform)>,
+) {
+    if let Ok((mut player, p_t)) = player_query.single_mut() {
         // player.velocity.y *= mine.;
+        for (mine, m_t) in mine_query.iter() {
+            if mine.hooked {
+                let dir = m_t.translation - p_t.translation;
+                player.velocity += dir.normalize() * 0.05;
+            }
+        }
     }
 }
 
 fn draw_line_system(
     player_query: Query<(&Player, &Transform)>,
     mine_query: Query<(&Mine, &Transform)>,
-    mut lines: ResMut<DebugLines>
+    mut lines: ResMut<DebugLines>,
 ) {
-    if let Ok((mut player, p_t)) = player_query.single() {
+    if let Ok((player, p_t)) = player_query.single() {
         // player.velocity.y *= mine.;
         for (mine, m_t) in mine_query.iter() {
             if mine.hooked {
