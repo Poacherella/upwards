@@ -20,3 +20,6 @@ rustflags = ["-Zshare-generics=y"]
 # In most cases the gains are negligible, but if you are on macos and have slow compile times you should see significant gains.
 #[profile.dev]
 #debug = 1
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
