@@ -5,6 +5,7 @@ use bevy::{
     sprite::collide_aabb::{collide, Collision},
 };
 use bevy_prototype_debug_lines::*;
+use rand::Rng;
 
 const TIME_STEP: f32 = 1.0 / 60.0;
 fn main() {
@@ -23,6 +24,8 @@ fn main() {
                 .with_system(mine_highlighter_system.system())
                 .with_system(draw_line_system.system())
                 .with_system(move_towards_mine_system.system())
+                .with_system(move_camera_system.system())
+                .with_system(spawn_new_mine_system.system())
                 .with_system(mine_hook_system.system())
                 .with_system(player_movement_system.system()),
         )
@@ -47,16 +50,13 @@ impl Default for Mine {
 struct MainCamera;
 struct Player {
     velocity: Vec3,
+    maxheight: f32
 }
 
 struct Scoreboard {
     score: usize,
 }
 
-enum Collider {
-    Solid,
-    Mine,
-}
 
 fn setup(
     mut commands: Commands,
@@ -81,26 +81,24 @@ fn setup(
         })
         .insert(Player {
             velocity: Vec3::new(0.0, -0.5, 0.0).normalize(),
+            maxheight: 0.
         });
 
-    commands
-        .spawn_bundle(SpriteBundle {
-            material: materials.add(asset_server.load("bomb.png").into()),
-            sprite: Sprite::new(Vec2::new(30.0, 30.0)),
-            transform: Transform::from_xyz(10.0, -70.0, 1.0),
-            ..Default::default()
-        })
-        .insert(Mine::default());
 
 
-        commands
-        .spawn_bundle(SpriteBundle {
-            material: materials.add(asset_server.load("bomb.png").into()),
-            sprite: Sprite::new(Vec2::new(30.0, 30.0)),
-            transform: Transform::from_xyz(-40.0, 200.0, 1.0),
-            ..Default::default()
-        })
-        .insert(Mine::default());
+        let mut rng = rand::thread_rng();
+        for _ in 0..50 {
+
+            commands
+            .spawn_bundle(SpriteBundle {
+                material: materials.add(asset_server.load("bomb.png").into()),
+                sprite: Sprite::new(Vec2::new(30.0, 30.0)),
+                transform: Transform::from_xyz(rng.gen_range(-300.0..300.0), rng.gen_range(-90.0..270.0), 1.0),
+                ..Default::default()
+            })
+            .insert(Mine::default());
+
+        }
 
     // scoreboard
     commands.spawn_bundle(TextBundle {
@@ -138,6 +136,7 @@ fn setup(
     });
 }
 
+/// Use the mouse to select a mine
 fn mine_selector_system(
     // need to get window dimensions
     wnds: Res<Windows>,
@@ -182,7 +181,6 @@ fn mine_highlighter_system(
     mut q_mine: Query<(&Sprite, &Handle<ColorMaterial>, &Mine)>,
 ) {
     for (_sprite, handle, m) in &mut q_mine.iter_mut() {
-        // let material = materials.get(&handle).unwrap();
         let material = materials.get_mut(handle);
         if let Some(mat) = material {
             if m.selected {
@@ -201,8 +199,6 @@ fn mine_highlighter_system(
 }
 
 fn mine_hook_system(btns: Res<Input<MouseButton>>, mut q_mine: Query<&mut Mine>) {
-    // Mouse buttons
-    // if btns.
     if btns.just_pressed(MouseButton::Left) {
         // a left click just happened
         for mut m in &mut q_mine.iter_mut() {
@@ -221,6 +217,52 @@ fn mine_hook_system(btns: Res<Input<MouseButton>>, mut q_mine: Query<&mut Mine>)
     }
 }
 
+//
+fn spawn_new_mine_system(
+    q_mine: Query<&Transform, With<Mine>>,
+    q_player: Query<&Player>,
+    mut commands: Commands,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    asset_server: Res<AssetServer>,
+
+) {
+    if let Ok(p) = q_player.single() {
+
+        let mut highest_mine: f32 = 0.0;
+        for mine_t in q_mine.iter() {
+            highest_mine = highest_mine.max(mine_t.translation.y);
+        }
+        if highest_mine - p.maxheight < 100.  {
+            let mut rng = rand::thread_rng();
+
+
+            commands
+            .spawn_bundle(SpriteBundle {
+                material: materials.add(asset_server.load("bomb.png").into()),
+                sprite: Sprite::new(Vec2::new(30.0, 30.0)),
+                transform: Transform::from_xyz(rng.gen_range(-300.0..300.0), rng.gen_range(p.maxheight+200.0..p.maxheight + 350.), 1.0),
+                ..Default::default()
+            })
+            .insert(Mine::default());
+        }
+
+    }
+    
+}
+
+//
+fn move_camera_system(
+    q_player: Query<&Player>,
+    mut q_cam: Query<&mut Transform, With<MainCamera>>,
+) {
+    if let Ok(p) = q_player.single() {
+        if let Ok(mut cam_t) = q_cam.single_mut() {
+            cam_t.translation.y = p.maxheight
+        }
+    }
+    
+}
+
 // 2d dist
 fn dist(a: Vec2, b: Vec2) -> f32 {
     ((a.x - b.x).powf(2.) + (a.y - b.y).powf(2.)).sqrt()
@@ -228,8 +270,7 @@ fn dist(a: Vec2, b: Vec2) -> f32 {
 
 fn gravity_system(mut player_query: Query<&mut Player>) {
     if let Ok(mut player) = player_query.single_mut() {
-        // player.velocity.y *= 1.0051;
-        player.velocity -= Vec3::Y * 0.01;
+        player.velocity -= Vec3::Y * 0.02;
     }
 }
 
@@ -263,35 +304,42 @@ fn draw_line_system(
     }
 }
 
-fn player_movement_system(mut player_query: Query<(&Player, &mut Transform)>) {
-    if let Ok((player, mut transform)) = player_query.single_mut() {
+/// Move player and update the position
+fn player_movement_system(mut player_query: Query<(&mut Player, &mut Transform)>) {
+    if let Ok((mut player, mut transform)) = player_query.single_mut() {
         transform.translation += player.velocity;
+        player.maxheight = transform.translation.y.max(player.maxheight);
     }
 }
 
-fn scoreboard_system(scoreboard: Res<Scoreboard>, mut query: Query<&mut Text>) {
-    let mut text = query.single_mut().unwrap();
-    text.sections[0].value = format!("Score: {}", scoreboard.score);
+
+/// update the score
+fn scoreboard_system(
+    scoreboard: Res<Scoreboard>, mut query: Query<&mut Text>,
+    player_query: Query<&Player>
+
+) {
+    if let Ok(player) = player_query.single() {
+        let mut text = query.single_mut().unwrap();
+        text.sections[0].value = format!("Score: {:}", player.maxheight as i32);
+    
+    }
 }
 
-fn ball_collision_system(
-    mut commands: Commands,
-    mut scoreboard: ResMut<Scoreboard>,
-    mut ball_query: Query<(&mut Player, &Transform, &Sprite)>,
-    collider_query: Query<(Entity, &Collider, &Transform, &Sprite)>,
-) {
-    if let Ok((mut ball, ball_transform, sprite)) = ball_query.single_mut() {
-        let ball_size = sprite.size;
-        let velocity = &mut ball.velocity;
 
-        // check collision with walls
-        for (collider_entity, collider, transform, sprite) in collider_query.iter() {
-            let collision = collide(
-                ball_transform.translation,
-                ball_size,
-                transform.translation,
-                sprite.size,
-            );
+/// Very simple wall collision (left/right)
+fn ball_collision_system(
+    mut ball_query: Query<(&mut Player, &Transform)>,
+) {
+
+    let boundary = 200.;
+    if let Ok((mut player, p_t,)) = ball_query.single_mut() {
+
+        // check collision with walls and "reflect"
+        if p_t.translation.x < -boundary || p_t.translation.x > boundary {
+            player.velocity.x *= -1.;
+            // dampen a bit on impact
+            player.velocity *= 0.9;
         }
     }
 }
