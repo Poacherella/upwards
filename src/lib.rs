@@ -4,6 +4,7 @@ use bevy::{
     render::pass::ClearColor,
     sprite::collide_aabb::{collide, Collision},
 };
+#[cfg(not(target_arch = "wasm32"))]
 use bevy_prototype_debug_lines::*;
 use rand::Rng;
 use wasm_bindgen::prelude::*;
@@ -16,20 +17,19 @@ const GAME_BOARD: (f32, f32, f32, f32) = (-500.0, 500.0, 0.0, 300.0);
 pub fn run() {
     let mut app = App::build();
     app.add_plugins(DefaultPlugins)
-        .add_plugin(DebugLinesPlugin)
-        .insert_resource(Scoreboard { score: 0 })
         .insert_resource(ClearColor(Color::rgb(0.9, 0.9, 0.9)))
         .add_startup_system(setup.system())
         .add_system_set(
             SystemSet::new()
                 .with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
-                .with_system(ball_collision_system.system())
                 .with_system(mine_selector_system.system())
-                .with_system(gravity_system.system())
                 .with_system(mine_highlighter_system.system())
                 .with_system(draw_line_system.system())
                 .with_system(move_towards_mine_system.system())
+                .with_system(gravity_system.system())
+                .with_system(ball_collision_system.system())
                 .with_system(move_camera_system.system())
+                .with_system(bg_system.system())
                 .with_system(spawn_new_mine_system.system())
                 .with_system(mine_hook_system.system())
                 .with_system(player_movement_system.system()),
@@ -39,6 +39,8 @@ pub fn run() {
     // when building for Web, use WebGL2 rendering
     #[cfg(target_arch = "wasm32")]
     app.add_plugin(bevy_webgl2::WebGL2Plugin);
+    #[cfg(not(target_arch = "wasm32"))]
+    app.add_plugin(DebugLinesPlugin);
     app.run();
 }
 
@@ -46,6 +48,8 @@ struct Mine {
     selected: bool,
     hooked: bool,
 }
+
+struct Background;
 
 impl Default for Mine {
     fn default() -> Self {
@@ -59,10 +63,6 @@ struct MainCamera;
 struct Player {
     velocity: Vec3,
     maxheight: f32,
-}
-
-struct Scoreboard {
-    score: usize,
 }
 
 fn setup(
@@ -91,21 +91,16 @@ fn setup(
             maxheight: 0.,
         });
 
-    let mut rng = rand::thread_rng();
-    for _ in 0..50 {
-        commands
-            .spawn_bundle(SpriteBundle {
-                material: materials.add(asset_server.load("bomb.png").into()),
-                sprite: Sprite::new(Vec2::new(30.0, 30.0)),
-                transform: Transform::from_xyz(
-                    rng.gen_range(GAME_BOARD.0..GAME_BOARD.1),
-                    rng.gen_range(-90.0..270.0),
-                    1.0,
-                ),
-                ..Default::default()
-            })
-            .insert(Mine::default());
-    }
+    // bg
+    commands
+        .spawn_bundle(SpriteBundle {
+            material: materials.add(Color::rgb(0.5, 0.5, 1.0).into()),
+            transform: Transform::from_xyz(0.0, 0.0, 0.0),
+            sprite: Sprite::new(Vec2::new(GAME_BOARD.1*2.05, 1000.0)),
+            ..Default::default()
+        })
+        .insert(Background)
+        ;
 
     // scoreboard
     commands.spawn_bundle(TextBundle {
@@ -188,14 +183,12 @@ fn mine_highlighter_system(
     mut q_mine: Query<(&Sprite, &Handle<ColorMaterial>, &Mine)>,
 ) {
     for (_sprite, handle, m) in &mut q_mine.iter_mut() {
-        let material = materials.get_mut(handle);
-        if let Some(mat) = material {
+        if let Some(mat) = materials.get_mut(handle) {
             if m.selected {
                 mat.color.set_g(10.);
             } else {
                 mat.color.set_g(1.);
             }
-
             if m.hooked {
                 mat.color.set_r(10.);
             } else {
@@ -256,7 +249,7 @@ fn spawn_new_mine_system(
     }
 }
 
-//
+
 fn move_camera_system(
     q_player: Query<&Player>,
     mut q_cam: Query<&mut Transform, With<MainCamera>>,
@@ -268,6 +261,24 @@ fn move_camera_system(
     }
 }
 
+fn bg_system(
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    q_player: Query<&Player>,
+    mut q_bg: Query<(&mut Transform, &Sprite, &Handle<ColorMaterial>), With<Background>>,
+) {
+    if let Ok(p) = q_player.single() {
+
+            if let Ok((mut bg_t, _s, handle)) = q_bg.single_mut() {
+                bg_t.translation.y = p.maxheight;
+                if let Some(mat) = materials.get_mut(handle) {
+                    mat.color.set_g(p.maxheight/10000.);
+
+                }
+
+        }
+    }
+}
+
 // 2d dist
 fn dist(a: Vec2, b: Vec2) -> f32 {
     ((a.x - b.x).powf(2.) + (a.y - b.y).powf(2.)).sqrt()
@@ -275,7 +286,7 @@ fn dist(a: Vec2, b: Vec2) -> f32 {
 
 fn gravity_system(mut player_query: Query<&mut Player>) {
     if let Ok(mut player) = player_query.single_mut() {
-        player.velocity -= Vec3::Y * 0.02;
+        player.velocity -= Vec3::Y * 0.03;
     }
 }
 
@@ -288,24 +299,30 @@ fn move_towards_mine_system(
         for (mine, m_t) in mine_query.iter() {
             if mine.hooked {
                 let dir = m_t.translation - p_t.translation;
-                player.velocity += dir.normalize() * 0.05;
+                player.velocity += dir.normalize() * 0.15;
             }
         }
     }
 }
 
 fn draw_line_system(
-    player_query: Query<(&Player, &Transform)>,
+    player_query: Query<&Transform, With<Player>>,
     mine_query: Query<(&Mine, &Transform)>,
     mut lines: ResMut<DebugLines>,
 ) {
-    if let Ok((player, p_t)) = player_query.single() {
+    if let Ok(p_t) = player_query.single() {
         // player.velocity.y *= mine.;
         for (mine, m_t) in mine_query.iter() {
             if mine.hooked {
                 lines.line(p_t.translation, m_t.translation, 0.);
             }
         }
+    }
+}
+
+fn draw_bg_system(player_query: Query<&Transform, With<Player>>) {
+    if let Ok(p_t) = player_query.single() {
+        // player.velocity.y *= mine.;
     }
 }
 
@@ -318,11 +335,7 @@ fn player_movement_system(mut player_query: Query<(&mut Player, &mut Transform)>
 }
 
 /// update the score
-fn scoreboard_system(
-    scoreboard: Res<Scoreboard>,
-    mut query: Query<&mut Text>,
-    player_query: Query<&Player>,
-) {
+fn scoreboard_system(mut query: Query<&mut Text>, player_query: Query<&Player>) {
     if let Ok(player) = player_query.single() {
         let mut text = query.single_mut().unwrap();
         text.sections[0].value = format!("Score: {:}", player.maxheight as i32);
@@ -331,10 +344,9 @@ fn scoreboard_system(
 
 /// Very simple wall collision (left/right)
 fn ball_collision_system(mut ball_query: Query<(&mut Player, &Transform)>) {
-    let boundary = GAME_BOARD.0;
     if let Ok((mut player, p_t)) = ball_query.single_mut() {
         // check collision with walls and "reflect"
-        if p_t.translation.x < -boundary || p_t.translation.x > boundary {
+        if p_t.translation.x < GAME_BOARD.0 || p_t.translation.x > GAME_BOARD.1 {
             player.velocity.x *= -1.;
             // dampen a bit on impact
             player.velocity *= 0.9;
