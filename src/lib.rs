@@ -11,7 +11,9 @@ use wasm_bindgen::prelude::*;
 
 const TIME_STEP: f32 = 1.0 / 60.0;
 // left, right, bottom, top
-const GAME_BOARD: (f32, f32, f32, f32) = (-500.0, 500.0, 0.0, 300.0);
+const GAME_BOARD: (f32, f32, f32, f32) = (-500.0, 500.0, -350.0, 350.0);
+const GRAVITY_FAC: f32 = 0.03;
+
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone)]
 enum AppState {
@@ -59,9 +61,14 @@ pub fn run() {
     let mut app = App::build();
     app.add_plugins(DefaultPlugins)
         .insert_resource(ClearColor(Color::rgb(0.9, 0.9, 0.9)))
-        .add_startup_system(setup.system())
+        // .add_startup_system(setup.system())
+        .add_state(AppState::Game)
         .add_system_set(
-            SystemSet::new()
+            SystemSet::on_enter(AppState::Game)
+            .with_system(setup.system())
+        )
+        .add_system_set(
+            SystemSet::on_update(AppState::Game)
                 .with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
                 .with_system(mine_selector_system.system())
                 .with_system(mine_highlighter_system.system())
@@ -71,15 +78,21 @@ pub fn run() {
                 .with_system(gravity_system.system())
                 .with_system(ball_collision_system.system())
                 .with_system(move_camera_system.system())
+                .with_system(is_player_dead_system.system())
                 .with_system(bg_system.system())
                 .with_system(player_too_low_system.system())
                 .with_system(spawn_new_mine_system.system())
+                .with_system(clean_old_mines_system.system())
                 .with_system(mine_hook_system.system())
                 .with_system(mine_movement_system.system())
                 .with_system(player_movement_system.system()),
         )
+        .add_system_set(SystemSet::on_exit(AppState::Game)
+        .with_system(clean_assets_system.system())
+    )
         .add_system(scoreboard_system.system())
         .add_system(bevy::input::system::exit_on_esc_system.system());
+    // app.add_state(AppState::End);
     // when building for Web, use WebGL2 rendering
     #[cfg(target_arch = "wasm32")]
     app.add_plugin(bevy_webgl2::WebGL2Plugin);
@@ -197,6 +210,7 @@ fn mine_selector_system(
     }
 }
 
+/// Highlight mine under cursor and if hooked
 fn mine_highlighter_system(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut q_mine: Query<(&Sprite, &Handle<ColorMaterial>, &Mine)>,
@@ -217,6 +231,7 @@ fn mine_highlighter_system(
     }
 }
 
+/// Mark a mine hooked
 fn mine_hook_system(btns: Res<Input<MouseButton>>, mut q_mine: Query<&mut Mine>) {
     if btns.just_pressed(MouseButton::Left) {
         // a left click just happened
@@ -236,7 +251,7 @@ fn mine_hook_system(btns: Res<Input<MouseButton>>, mut q_mine: Query<&mut Mine>)
     }
 }
 
-//
+// Make sure there are enough things to grab
 fn spawn_new_mine_system(
     q_mine: Query<&Transform, With<Mine>>,
     q_player: Query<&Player>,
@@ -268,6 +283,7 @@ fn spawn_new_mine_system(
     }
 }
 
+/// Follow the player upward
 fn move_camera_system(
     q_player: Query<&Player>,
     mut q_cam: Query<&mut Transform, With<MainCamera>>,
@@ -279,16 +295,18 @@ fn move_camera_system(
     }
 }
 
+/// Set player dead if too low
 fn player_too_low_system(mut q_player: Query<(&mut Player, &Transform)>) {
-    let threshold = 380.;
     if let Ok((mut p, t)) = q_player.single_mut() {
-        if p.maxheight - t.translation.y > threshold {
+        if p.maxheight - t.translation.y > GAME_BOARD.2.abs() {
             dbg!("too low");
             p.dead = true;
         }
     }
 }
 
+
+/// Tint the background as you get higher
 fn bg_system(
     mut materials: ResMut<Assets<ColorMaterial>>,
     q_player: Query<&Player>,
@@ -309,9 +327,10 @@ fn dist(a: Vec2, b: Vec2) -> f32 {
     ((a.x - b.x).powf(2.) + (a.y - b.y).powf(2.)).sqrt()
 }
 
+/// Very simple gravity system
 fn gravity_system(mut player_query: Query<&mut Player>) {
     if let Ok(mut player) = player_query.single_mut() {
-        player.velocity -= Vec3::Y * 0.03;
+        player.velocity -= Vec3::Y * GRAVITY_FAC;
     }
 }
 
@@ -339,8 +358,9 @@ fn velocity_towards_player_system(
         for (mut mine, m_t) in mine_query.iter_mut() {
             if mine.hooked {
                 let dir = p_t.translation - m_t.translation;
-                mine.velocity += dir.normalize() * 0.1;
+                mine.velocity += dir.normalize() * 0.05;
             } else {
+                // slow down mine again if not hooked
                 mine.velocity *= 0.9;
             }
         }
@@ -377,6 +397,44 @@ fn mine_movement_system(mut mine_query: Query<(&mut Transform, &Mine)>) {
     }
 }
 
+/// Despawn mines that are too low (we'll never need them again)
+fn clean_old_mines_system(
+    mut mine_query: Query<(&mut Transform, Entity), With<Mine>>,
+    player_query: Query<&Player>,
+    mut commands: Commands,
+) {
+    if let Ok(player) = player_query.single() {
+        for (transform, mine) in mine_query.iter_mut() {
+            if transform.translation.y < player.maxheight + GAME_BOARD.2 {
+                commands.entity(mine).despawn();
+            }
+        }
+    }
+}
+
+/// clean up everything
+fn clean_assets_system(
+    mut mine_query: Query<Entity, With<Mine>>,
+    player_query: Query<Entity, With<Player>>,
+    mut commands: Commands,
+) {
+    if let Ok(player) = player_query.single() {
+        commands.entity(player).despawn();
+    }
+    for mine in mine_query.iter_mut() {
+        commands.entity(mine).despawn();
+    }
+}
+
+/// Trigger state change
+fn is_player_dead_system(mut app_state: ResMut<State<AppState>>, player_query: Query<&Player>) {
+    if let Ok(player) = player_query.single() {
+        if player.dead {
+            app_state.set(AppState::End).unwrap();
+        }
+    }
+}
+
 /// update the score
 fn scoreboard_system(mut query: Query<&mut Text>, player_query: Query<&Player>) {
     if let Ok(player) = player_query.single() {
@@ -391,8 +449,8 @@ fn ball_collision_system(mut ball_query: Query<(&mut Player, &Transform)>) {
         // check collision with walls and "reflect"
         if p_t.translation.x < GAME_BOARD.0 || p_t.translation.x > GAME_BOARD.1 {
             player.velocity.x *= -1.;
-            // dampen a bit on impact
-            player.velocity *= 0.9;
+            // dampen a bit on impact (seems to get player stuck, perhaps better w/ fixed timestep)
+            // player.velocity *= 0.9;
         }
     }
 }
