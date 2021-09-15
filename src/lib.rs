@@ -1,19 +1,17 @@
+
 use bevy::{
     core::FixedTimestep,
     prelude::*,
     render::pass::ClearColor,
     sprite::collide_aabb::{collide, Collision},
 };
-#[cfg(not(target_arch = "wasm32"))]
-use bevy_prototype_debug_lines::*;
 use rand::Rng;
 use wasm_bindgen::prelude::*;
 
 const TIME_STEP: f32 = 1.0 / 60.0;
 // left, right, bottom, top
 const GAME_BOARD: (f32, f32, f32, f32) = (-500.0, 500.0, -350.0, 350.0);
-const GRAVITY_FAC: f32 = 0.03;
-
+const GRAVITY_FAC: f32 = 0.06;
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone)]
 enum AppState {
@@ -30,6 +28,8 @@ struct Mine {
 // Just a marker for the bg
 struct Background;
 struct MainCamera;
+
+struct Line;
 
 impl Default for Mine {
     fn default() -> Self {
@@ -49,7 +49,7 @@ struct Player {
 impl Default for Player {
     fn default() -> Self {
         Self {
-            velocity: Vec3::new(0.5, 2.5, 0.0),
+            velocity: Vec3::new(0.5, 6.5, 0.0),
             maxheight: 0.0,
             dead: false,
         }
@@ -63,41 +63,39 @@ pub fn run() {
         .insert_resource(ClearColor(Color::rgb(0.9, 0.9, 0.9)))
         // .add_startup_system(setup.system())
         .add_state(AppState::Game)
-        .add_system_set(
-            SystemSet::on_enter(AppState::Game)
-            .with_system(setup.system())
-        )
+        .add_system_set(SystemSet::on_enter(AppState::Game).with_system(setup.system()))
         .add_system_set(
             SystemSet::on_update(AppState::Game)
                 .with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
-                .with_system(mine_selector_system.system())
-                .with_system(mine_highlighter_system.system())
-                .with_system(draw_line_system.system())
                 .with_system(velocity_towards_mine_system.system())
                 .with_system(velocity_towards_player_system.system())
                 .with_system(gravity_system.system())
                 .with_system(ball_collision_system.system())
-                .with_system(move_camera_system.system())
-                .with_system(is_player_dead_system.system())
                 .with_system(bg_system.system())
-                .with_system(player_too_low_system.system())
                 .with_system(spawn_new_mine_system.system())
                 .with_system(clean_old_mines_system.system())
-                .with_system(mine_hook_system.system())
+            )
+            .add_system_set(
+                SystemSet::on_update(AppState::Game)
                 .with_system(mine_movement_system.system())
-                .with_system(player_movement_system.system()),
+                .with_system(player_movement_system.system())
+                .with_system(mine_selector_system.system())
+                .with_system(mine_highlighter_system.system())
+                .with_system(draw_line_system.system())
+                .with_system(move_camera_system.system())
+                .with_system(is_player_dead_system.system())
+                .with_system(player_too_low_system.system())
+                .with_system(mine_hook_system.system()),
         )
-        .add_system_set(SystemSet::on_exit(AppState::Game)
-        .with_system(clean_assets_system.system())
-    )
+        .add_system_set(
+            SystemSet::on_exit(AppState::Game).with_system(clean_assets_system.system()),
+        )
         .add_system(scoreboard_system.system())
         .add_system(bevy::input::system::exit_on_esc_system.system());
     // app.add_state(AppState::End);
     // when building for Web, use WebGL2 rendering
     #[cfg(target_arch = "wasm32")]
     app.add_plugin(bevy_webgl2::WebGL2Plugin);
-    #[cfg(not(target_arch = "wasm32"))]
-    app.add_plugin(DebugLinesPlugin);
     app.run();
 }
 
@@ -133,6 +131,16 @@ fn setup(
             ..Default::default()
         })
         .insert(Background);
+
+    // line
+    commands
+        .spawn_bundle(SpriteBundle {
+            material: materials.add(Color::rgb(1.0, 1.0, 1.0).into()),
+            transform: Transform::from_xyz(0.0, 0.0, 1.0),
+            sprite: Sprite::new(Vec2::new(1.0, 2.0)),
+            ..Default::default()
+        })
+        .insert(Line);
 
     // scoreboard
     commands.spawn_bundle(TextBundle {
@@ -218,12 +226,12 @@ fn mine_highlighter_system(
     for (_sprite, handle, m) in &mut q_mine.iter_mut() {
         if let Some(mat) = materials.get_mut(handle) {
             if m.selected {
-                mat.color.set_g(10.);
+                mat.color.set_g(4.);
             } else {
                 mat.color.set_g(1.);
             }
             if m.hooked {
-                mat.color.set_r(10.);
+                mat.color.set_r(4.);
             } else {
                 mat.color.set_r(1.);
             }
@@ -305,7 +313,6 @@ fn player_too_low_system(mut q_player: Query<(&mut Player, &Transform)>) {
     }
 }
 
-
 /// Tint the background as you get higher
 fn bg_system(
     mut materials: ResMut<Assets<ColorMaterial>>,
@@ -368,18 +375,36 @@ fn velocity_towards_player_system(
 }
 
 fn draw_line_system(
-    player_query: Query<&Transform, With<Player>>,
-    mine_query: Query<(&Mine, &Transform)>,
-    mut lines: ResMut<DebugLines>,
+    q_player: Query<&Transform, (With<Player>, Without<Mine>, Without<Line>)>,
+    q_mines: Query<(&Transform, &Mine), (Without<Player>, Without<Line>)>,
+    mut q_line: Query<&mut Transform, (With<Line>, Without<Player>, Without<Mine>)>,
 ) {
-    if let Ok(p_t) = player_query.single() {
-        // player.velocity.y *= mine.;
-        for (mine, m_t) in mine_query.iter() {
-            if mine.hooked {
-                lines.line(p_t.translation, m_t.translation, 0.);
+    let mut any_hooked = false;
+    if let Ok(p_t) = q_player.single() {
+        for (m_t, mine) in q_mines.iter() {
+            if let Ok(mut l_t) = q_line.single_mut() {
+                if mine.hooked {
+                    let m = m_t.translation.truncate();
+                    let p = p_t.translation.truncate();
+                    l_t.translation = midpoint(m_t.translation, p_t.translation);
+                    l_t.scale.x = dist(m, p);
+                    let diff = m_t.translation - p_t.translation;
+                    let angle = diff.y.atan2(diff.x);
+                    l_t.rotation = Quat::from_axis_angle(Vec3::new(0., 0., 1.), angle);
+                    any_hooked = true;
+                } 
+            }
+        }
+        if !any_hooked {
+            if let Ok(mut l_t) = q_line.single_mut() {
+                l_t.scale.x = 0.; 
             }
         }
     }
+}
+
+fn midpoint(a: Vec3, b: Vec3) -> Vec3 {
+    Vec3::new((a.x + b.x) / 2., (a.y + b.y) / 2., (a.z + b.z) / 2.)
 }
 
 /// Move player and update the max y position
