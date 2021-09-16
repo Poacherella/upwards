@@ -1,3 +1,3 @@
 # upwards
 
-play this at https://poacherella.github.io/upwards/web/
+play this at https://poacherella.github.io/upwards/index.html
