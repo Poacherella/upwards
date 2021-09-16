@@ -1,0 +1,13 @@
+<html>
+<head>
+<title>upwards</title>
+</head>
+<body>
+<script type="module">
+  import init from "./upwards.js";
+  init("./upwards_bg.wasm").then(function (wasm) {
+    wasm.run();
+  });
+</script>
+</body>
+</html>
