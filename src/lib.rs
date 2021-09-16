@@ -10,7 +10,7 @@ use wasm_bindgen::prelude::*;
 
 const TIME_STEP: f32 = 1.0 / 60.0;
 // left, right, bottom, top
-const GAME_BOARD: (f32, f32, f32, f32) = (-500.0, 500.0, -350.0, 350.0);
+const GAME_BOARD: (f32, f32, f32, f32) = (-200.0, 200.0, -350.0, 350.0);
 const GRAVITY_FAC: f32 = 0.06;
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone)]
@@ -112,15 +112,7 @@ fn setup(
         .insert(MainCamera);
     commands.spawn_bundle(UiCameraBundle::default());
 
-    // player
-    commands
-        .spawn_bundle(SpriteBundle {
-            material: materials.add(asset_server.load("bomb.png").into()),
-            transform: Transform::from_xyz(0.0, -160.0, 1.0),
-            sprite: Sprite::new(Vec2::new(30.0, 30.0)),
-            ..Default::default()
-        })
-        .insert(Player::default());
+
 
     // bg
     commands
@@ -136,11 +128,21 @@ fn setup(
     commands
         .spawn_bundle(SpriteBundle {
             material: materials.add(Color::rgb(1.0, 1.0, 1.0).into()),
-            transform: Transform::from_xyz(0.0, 0.0, 1.0),
+            transform: Transform::from_xyz(0.0, 0.0, 0.9),
             sprite: Sprite::new(Vec2::new(1.0, 2.0)),
             ..Default::default()
         })
         .insert(Line);
+
+            // player
+    commands
+    .spawn_bundle(SpriteBundle {
+        material: materials.add(asset_server.load("player.png").into()),
+        transform: Transform::from_xyz(0.0, -160.0, 1.0),
+        sprite: Sprite::new(Vec2::new(32.0, 32.0)),
+        ..Default::default()
+    })
+    .insert(Player::default());
 
     // scoreboard
     commands.spawn_bundle(TextBundle {
@@ -277,8 +279,8 @@ fn spawn_new_mine_system(
 
             commands
                 .spawn_bundle(SpriteBundle {
-                    material: materials.add(asset_server.load("bomb.png").into()),
-                    sprite: Sprite::new(Vec2::new(30.0, 30.0)),
+                    material: materials.add(asset_server.load("mine.png").into()),
+                    sprite: Sprite::new(Vec2::new(32.0, 32.0)),
                     transform: Transform::from_xyz(
                         rng.gen_range(GAME_BOARD.0..GAME_BOARD.1),
                         rng.gen_range(p.maxheight + 300.0..p.maxheight + 350.),
@@ -323,7 +325,12 @@ fn bg_system(
         if let Ok((mut bg_t, _s, handle)) = q_bg.single_mut() {
             bg_t.translation.y = p.maxheight;
             if let Some(mat) = materials.get_mut(handle) {
-                mat.color.set_g(p.maxheight / 10000.);
+                let grad = colorgrad::rainbow();
+                let c = grad.at(p.maxheight as f64 / 10000.);
+
+                mat.color.set_r(c.r as f32);
+                mat.color.set_g(c.g as f32);
+                mat.color.set_b(c.b as f32);
             }
         }
     }
@@ -365,7 +372,7 @@ fn velocity_towards_player_system(
         for (mut mine, m_t) in mine_query.iter_mut() {
             if mine.hooked {
                 let dir = p_t.translation - m_t.translation;
-                mine.velocity += dir.normalize() * 0.05;
+                mine.velocity += dir.normalize() * 0.04;
             } else {
                 // slow down mine again if not hooked
                 mine.velocity *= 0.9;
