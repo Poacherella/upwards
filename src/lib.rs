@@ -11,7 +11,7 @@ use wasm_bindgen::prelude::*;
 const TIME_STEP: f32 = 1.0 / 60.0;
 // left, right, bottom, top
 const GAME_BOARD: (f32, f32, f32, f32) = (-200.0, 200.0, -350.0, 350.0);
-const GRAVITY_FAC: f32 = 0.06;
+const GRAVITY_FAC: f32 = 0.07;
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone)]
 enum AppState {
@@ -59,6 +59,12 @@ impl Default for Player {
 #[wasm_bindgen]
 pub fn run() {
     let mut app = App::build();
+    app.insert_resource(
+        WindowDescriptor {
+            width: 500.,
+            height: 800.,
+            ..Default::default()
+        });
     app.add_plugins(DefaultPlugins)
         .insert_resource(ClearColor(Color::rgb(0.9, 0.9, 0.9)))
         // .add_startup_system(setup.system())
@@ -119,7 +125,7 @@ fn setup(
         .spawn_bundle(SpriteBundle {
             material: materials.add(Color::rgb(0.5, 0.5, 1.0).into()),
             transform: Transform::from_xyz(0.0, 0.0, 0.0),
-            sprite: Sprite::new(Vec2::new(GAME_BOARD.1 * 2.05, 1000.0)),
+            sprite: Sprite::new(Vec2::new(GAME_BOARD.1 * 2. + 32., 1000.0)),
             ..Default::default()
         })
         .insert(Background);
