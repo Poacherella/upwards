@@ -11,7 +11,7 @@ use wasm_bindgen::prelude::*;
 
 const TIME_STEP: f32 = 1.0 / 60.0;
 // left, right, bottom, top
-const GAME_BOARD: (f32, f32, f32, f32) = (-200.0, 200.0, -340.0, 330.0);
+const GAME_BOARD: (f32, f32, f32, f32) = (-200.0, 200.0, -400.0, 400.0);
 const GRAVITY_FAC: f32 = 0.09;
 // const GRAVITY_FAC: f32 = 0.02;
 const UPWARD_FAC: f32 = 0.25;
@@ -66,11 +66,11 @@ struct Player {
 #[wasm_bindgen]
 pub fn run() {
     let mut app = App::build();
-    app.insert_resource(WindowDescriptor {
-        width: 500.,
-        height: 800.,
-        ..Default::default()
-    });
+    // app.insert_resource(WindowDescriptor {
+    //     width: GAME_BOARD.1*2. + 100.,
+    //     height: GAME_BOARD.3*2.,
+    //     ..Default::default()
+    // });
     // app.add_plugin(AudioPlugin);
     app.add_plugins(DefaultPlugins)
         .add_plugin(AudioPlugin)
@@ -123,6 +123,9 @@ pub fn run() {
     // when building for Web, use WebGL2 rendering
     #[cfg(target_arch = "wasm32")]
     app.add_plugin(bevy_webgl2::WebGL2Plugin);
+
+    #[cfg(target_arch = "wasm32")]
+    app.add_plugin(bevy_web_fullscreen::FullViewportPlugin);
     app.run();
 }
 
