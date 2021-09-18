@@ -92,7 +92,7 @@ pub fn run() {
                 .with_system(velocity_towards_mine_system.system())
                 .with_system(velocity_towards_player_system.system())
                 .with_system(gravity_system.system())
-                .with_system(ball_collision_system.system())
+                .with_system(wall_collision_system.system())
                 .with_system(bg_system.system())
                 .with_system(spawn_new_mine_system.system())
                 // .with_system(play_hooked_system.system())
@@ -260,19 +260,19 @@ fn mine_selector_system(
 /// Highlight mine under cursor and if hooked
 fn mine_highlighter_system(
     mut materials: ResMut<Assets<ColorMaterial>>,
-    mut q_mine: Query<(&Sprite, &Handle<ColorMaterial>, &Mine)>,
+    mut q_mine: Query<(&Handle<ColorMaterial>, &Mine), With<Sprite>>,
 ) {
-    for (_sprite, handle, m) in &mut q_mine.iter_mut() {
+    for (handle, mine) in &mut q_mine.iter_mut() {
         if let Some(mat) = materials.get_mut(handle) {
-            if m.selected {
+            if mine.selected {
                 mat.color.set_g(4.);
             } else {
                 mat.color.set_g(1.);
             }
-            if m.hooked {
-                mat.color.set_r(4.);
+            if mine.hooked {
+                mat.color.set_b(4.);
             } else {
-                mat.color.set_r(1.);
+                mat.color.set_b(1.);
             }
         }
     }
@@ -303,6 +303,26 @@ fn mine_hook_system(
             m.hooked = false;
         }
     }
+
+
+
+
+    // if btns.pressed(MouseButton::Left) {
+    //     for mut m in &mut q_mine.iter_mut() {
+    //         if m.selected {
+    //             m.hooked = true;
+    //             // audio.play(asset_server.load("sfx100v2_air_02.ogg"));
+    //         } else {
+    //             m.hooked = false;
+    //         }
+    //     }
+    // } else {
+    //     for mut m in &mut q_mine.iter_mut() {
+    //         m.hooked = false;
+    //     }
+    // }
+
+
 }
 
 // Make sure there are enough things to grab
@@ -512,7 +532,7 @@ fn scoreboard_system(mut query: Query<&mut Text, With<ScoreText>>, player_query:
 }
 
 /// Very simple wall collision (left/right)
-fn ball_collision_system(
+fn wall_collision_system(
     mut ball_query: Query<(&mut Player, &mut Transform)>,
     asset_server: Res<AssetServer>,
     audio: Res<Audio>,

@@ -1,3 +1,4 @@
 /target
 assets/src
 web/target
+node_modules
