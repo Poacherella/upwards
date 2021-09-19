@@ -83,10 +83,7 @@ pub fn run() {
                 .with_system(setup.system())
                 .with_system(start_music.system()),
         )
-        .add_system_set(
-            SystemSet::on_enter(AppState::Game)
-                .with_system(init_game.system())
-        )
+        .add_system_set(SystemSet::on_enter(AppState::Game).with_system(init_game.system()))
         .add_system_set(
             SystemSet::on_update(AppState::Game)
                 .with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
@@ -96,11 +93,11 @@ pub fn run() {
                 .with_system(wall_collision_system.system())
                 .with_system(bg_system.system())
                 .with_system(spawn_new_mine_system.system())
-                .with_system(play_hooked_system.system())
+                // -.with_system(play_hooked_system.system())
                 .with_system(clean_old_mines_system.system()),
-            )
-            .add_system_set(
-                SystemSet::on_update(AppState::Game)
+        )
+        .add_system_set(
+            SystemSet::on_update(AppState::Game)
                 .with_system(player_movement_system.system())
                 .with_system(mine_movement_system.system())
                 .with_system(mine_selector_system.system())
@@ -285,10 +282,15 @@ fn mine_hook_system(
     btns: Res<Input<MouseButton>>,
     mut q_mine: Query<&mut Mine>,
     asset_server: Res<AssetServer>,
-    audio: Res<Audio>
+    audio: Res<Audio>,
+    touches: Res<Touches>, // mut evr_touch: Local<EventReader<TouchInput>>,
 ) {
-    if btns.just_pressed(MouseButton::Left) {
-        // a left click just happened
+    // touch
+    let mut touch_active = false;
+
+    for touch in touches.iter_just_pressed() {
+        dbg!("Touch pressed");
+        touch_active = true;
         for mut m in &mut q_mine.iter_mut() {
             if m.selected {
                 m.hooked = true;
@@ -298,32 +300,37 @@ fn mine_hook_system(
             }
         }
     }
-    if btns.just_released(MouseButton::Left) {
-        // deselect
+
+    for touch in touches.iter_just_released() {
+        dbg!("Touch release");
+        touch_active = true;
         for mut m in &mut q_mine.iter_mut() {
             m.hooked = false;
         }
     }
 
+    if !touch_active {
+        if btns.just_pressed(MouseButton::Left) {
+            dbg!("Mouse pressed");
+            // a left click just happened
+            for mut m in &mut q_mine.iter_mut() {
+                if m.selected {
+                    m.hooked = true;
+                    audio.play(asset_server.load("sfx100v2_air_02.ogg"));
+                } else {
+                    m.hooked = false;
+                }
+            }
+        }
+        if btns.just_released(MouseButton::Left) {
+            // deselect
+            dbg!("Mouse released");
 
-
-
-    // if btns.pressed(MouseButton::Left) {
-    //     for mut m in &mut q_mine.iter_mut() {
-    //         if m.selected {
-    //             m.hooked = true;
-    //             // audio.play(asset_server.load("sfx100v2_air_02.ogg"));
-    //         } else {
-    //             m.hooked = false;
-    //         }
-    //     }
-    // } else {
-    //     for mut m in &mut q_mine.iter_mut() {
-    //         m.hooked = false;
-    //     }
-    // }
-
-
+            for mut m in &mut q_mine.iter_mut() {
+                m.hooked = false;
+            }
+        }
+    }
 }
 
 // Make sure there are enough things to grab
@@ -551,13 +558,13 @@ fn wall_collision_system(
 }
 
 /// TODO: play / end looping sound when hooked, maybe pitch
-fn play_hooked_system(p_query: Query<&Mine>, asset_server: Res<AssetServer>, audio: Res<Audio>) {
-    for m in p_query.iter() {
-        if m.hooked {
-            audio.play(asset_server.load("sfx100v2_air_02.ogg"));
-        }
-    }
-}
+// fn play_hooked_system(p_query: Query<&Mine>, asset_server: Res<AssetServer>, audio: Res<Audio>) {
+//     for m in p_query.iter() {
+//         if m.hooked {
+//             audio.play(asset_server.load("sfx100v2_air_02.ogg"));
+//         }
+//     }
+// }
 
 /// clean up everything
 fn end_game_system(
@@ -578,9 +585,7 @@ fn end_game_system(
 }
 
 /// clean up everything
-fn init_game(
-    mut player_query: Query<(&mut Player, &mut Transform)>,
-) {
+fn init_game(mut player_query: Query<(&mut Player, &mut Transform)>) {
     if let Ok((mut player, mut transform)) = player_query.single_mut() {
         *transform = Transform::from_xyz(0.0, -160.0, 1.0);
         player.velocity = Vec3::new(0.5, 15.5, 0.0);
