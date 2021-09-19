@@ -9,12 +9,13 @@ use bevy::{
 use rand::Rng;
 use wasm_bindgen::prelude::*;
 
-const TIME_STEP: f32 = 1.0 / 60.0;
+const TIME_STEP: f32 = 1.0 / 30.0;
 // left, right, bottom, top
 const GAME_BOARD: (f32, f32, f32, f32) = (-200.0, 200.0, -400.0, 400.0);
-const GRAVITY_FAC: f32 = 0.09;
-// const GRAVITY_FAC: f32 = 0.02;
-const UPWARD_FAC: f32 = 0.25;
+// const GRAVITY_FAC: f32 = 0.09;
+const GRAVITY_FAC: f32 = 0.18;
+// const UPWARD_FAC: f32 = 0.25;
+const UPWARD_FAC: f32 = 0.5;
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone)]
 enum AppState {
@@ -95,13 +96,13 @@ pub fn run() {
                 .with_system(wall_collision_system.system())
                 .with_system(bg_system.system())
                 .with_system(spawn_new_mine_system.system())
-                // .with_system(play_hooked_system.system())
+                .with_system(play_hooked_system.system())
                 .with_system(clean_old_mines_system.system()),
-        )
-        .add_system_set(
-            SystemSet::on_update(AppState::Game)
-                .with_system(mine_movement_system.system())
+            )
+            .add_system_set(
+                SystemSet::on_update(AppState::Game)
                 .with_system(player_movement_system.system())
+                .with_system(mine_movement_system.system())
                 .with_system(mine_selector_system.system())
                 .with_system(mine_highlighter_system.system())
                 .with_system(draw_line_system.system())

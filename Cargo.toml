@@ -12,7 +12,7 @@ wasm-opt = false
 opt-level = 1
 
 [profile.release]
-lto = true
+#lto = true
 
 [lib]
 crate-type = ["cdylib", "rlib"]
